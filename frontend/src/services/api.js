@@ -59,4 +59,65 @@ export async function generateAgentAlerts(
   return response.data;
 }
 
+export async function fetchCases(status = null) {
+  const response = await api.get("/api/cases", {
+    params: status ? { status } : {},
+  });
+
+  return response.data;
+}
+
+export async function fetchCase(caseId) {
+  const response = await api.get(`/api/cases/${caseId}`);
+  return response.data;
+}
+
+export async function createCaseFromAlert(
+  alertId,
+  payload,
+) {
+  const response = await api.post(
+    `/api/alerts/${alertId}/cases`,
+    payload,
+  );
+
+  return response.data;
+}
+
+export async function assignCase(
+  caseId,
+  payload,
+) {
+  const response = await api.patch(
+    `/api/cases/${caseId}/assignment`,
+    payload,
+  );
+
+  return response.data;
+}
+
+export async function updateCaseStatus(
+  caseId,
+  payload,
+) {
+  const response = await api.patch(
+    `/api/cases/${caseId}/status`,
+    payload,
+  );
+
+  return response.data;
+}
+
+export async function addCaseNote(
+  caseId,
+  payload,
+) {
+  const response = await api.post(
+    `/api/cases/${caseId}/notes`,
+    payload,
+  );
+
+  return response.data;
+}
+
 export default api;

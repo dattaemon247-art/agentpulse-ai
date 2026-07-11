@@ -3,6 +3,7 @@ import {
   Activity,
   AlertTriangle,
   Banknote,
+  BriefcaseBusiness,
   ChevronRight,
   Clock3,
   Database,
@@ -13,10 +14,13 @@ import {
   WalletCards,
 } from "lucide-react";
 
+import CaseManagement from "./CaseManagement";
+
 import {
   fetchAgent,
   fetchAgentAlerts,
   fetchAgents,
+  fetchCases,
   fetchLiquidityForecast,
   generateAgentAlerts,
 } from "./services/api";
@@ -24,15 +28,36 @@ import {
 
 function App() {
   const [agents, setAgents] = useState([]);
-  const [selectedAgentId, setSelectedAgentId] = useState(null);
-  const [selectedAgent, setSelectedAgent] = useState(null);
-  const [forecasts, setForecasts] = useState([]);
-  const [alerts, setAlerts] = useState([]);
+  const [selectedAgentId, setSelectedAgentId] =
+    useState(null);
 
-  const [loading, setLoading] = useState(true);
-  const [generatingAlerts, setGeneratingAlerts] = useState(false);
-  const [error, setError] = useState("");
-  const [notification, setNotification] = useState("");
+  const [selectedAgent, setSelectedAgent] =
+    useState(null);
+
+  const [forecasts, setForecasts] =
+    useState([]);
+
+  const [alerts, setAlerts] =
+    useState([]);
+
+  const [cases, setCases] =
+    useState([]);
+
+  const [loading, setLoading] =
+    useState(true);
+
+  const [
+    generatingAlerts,
+    setGeneratingAlerts,
+  ] = useState(false);
+
+  const [error, setError] =
+    useState("");
+
+  const [
+    notification,
+    setNotification,
+  ] = useState("");
 
 
   useEffect(() => {
@@ -45,7 +70,9 @@ function App() {
       return;
     }
 
-    loadSelectedAgentData(selectedAgentId);
+    loadSelectedAgentData(
+      selectedAgentId,
+    );
   }, [selectedAgentId]);
 
 
@@ -54,18 +81,21 @@ function App() {
       setLoading(true);
       setError("");
 
-      const agentList = await fetchAgents();
+      const agentList =
+        await fetchAgents();
 
       setAgents(agentList);
 
       if (agentList.length > 0) {
-        setSelectedAgentId(agentList[0].id);
+        setSelectedAgentId(
+          agentList[0].id,
+        );
       }
     } catch (requestError) {
       console.error(requestError);
 
       setError(
-        "Backend থেকে agent data load করা যায়নি। Backend server চলছে কি না দেখুন।",
+        "Backend থেকে agent data load করা যায়নি। Backend server চলছে কি না দেখুন.",
       );
     } finally {
       setLoading(false);
@@ -73,32 +103,91 @@ function App() {
   }
 
 
-  async function loadSelectedAgentData(agentId) {
+  async function loadSelectedAgentData(
+    agentId,
+  ) {
     try {
       setLoading(true);
       setError("");
+      setNotification("");
 
       const [
         agentData,
         forecastData,
         alertData,
+        caseData,
       ] = await Promise.all([
         fetchAgent(agentId),
-        fetchLiquidityForecast(agentId, 60),
+        fetchLiquidityForecast(
+          agentId,
+          60,
+        ),
         fetchAgentAlerts(agentId),
+        fetchCases(),
       ]);
 
       setSelectedAgent(agentData);
       setForecasts(forecastData);
       setAlerts(alertData);
+
+      const selectedAgentCases =
+        caseData.filter(
+          (caseItem) =>
+            alertData.some(
+              (alert) =>
+                alert.id ===
+                caseItem.alert_id,
+            ),
+        );
+
+      setCases(selectedAgentCases);
     } catch (requestError) {
       console.error(requestError);
 
       setError(
-        "Selected agent-এর dashboard data load করা যায়নি।",
+        "Selected agent-এর dashboard data load করা যায়নি.",
       );
     } finally {
       setLoading(false);
+    }
+  }
+
+
+  async function refreshCases() {
+    if (!selectedAgentId) {
+      return;
+    }
+
+    try {
+      const [
+        caseData,
+        alertData,
+      ] = await Promise.all([
+        fetchCases(),
+        fetchAgentAlerts(
+          selectedAgentId,
+        ),
+      ]);
+
+      setAlerts(alertData);
+
+      const selectedAgentCases =
+        caseData.filter(
+          (caseItem) =>
+            alertData.some(
+              (alert) =>
+                alert.id ===
+                caseItem.alert_id,
+            ),
+        );
+
+      setCases(selectedAgentCases);
+    } catch (requestError) {
+      console.error(requestError);
+
+      setError(
+        "Case data refresh করা যায়নি.",
+      );
     }
   }
 
@@ -113,25 +202,44 @@ function App() {
       setError("");
       setNotification("");
 
-      const result = await generateAgentAlerts(
-        selectedAgentId,
-        60,
-      );
+      const result =
+        await generateAgentAlerts(
+          selectedAgentId,
+          60,
+        );
 
       setNotification(
-        `${result.created_count}টি নতুন alert তৈরি হয়েছে এবং ${result.skipped_duplicate_count}টি duplicate alert skip হয়েছে।`,
+        `${result.created_count}টি নতুন alert তৈরি হয়েছে এবং ${result.skipped_duplicate_count}টি duplicate alert skip হয়েছে.`,
       );
 
-      const refreshedAlerts = await fetchAgentAlerts(
-        selectedAgentId,
-      );
+      const [
+        refreshedAlerts,
+        refreshedCases,
+      ] = await Promise.all([
+        fetchAgentAlerts(
+          selectedAgentId,
+        ),
+        fetchCases(),
+      ]);
 
       setAlerts(refreshedAlerts);
+
+      const selectedAgentCases =
+        refreshedCases.filter(
+          (caseItem) =>
+            refreshedAlerts.some(
+              (alert) =>
+                alert.id ===
+                caseItem.alert_id,
+            ),
+        );
+
+      setCases(selectedAgentCases);
     } catch (requestError) {
       console.error(requestError);
 
       setError(
-        "Alert generate করা যায়নি। Backend log check করুন।",
+        "Alert generate করা যায়নি। Backend log check করুন.",
       );
     } finally {
       setGeneratingAlerts(false);
@@ -139,28 +247,74 @@ function App() {
   }
 
 
-  const criticalForecasts = useMemo(
-    () =>
-      forecasts.filter((forecast) =>
-        ["critical", "high"].includes(
-          forecast.severity,
+  const criticalForecasts =
+    useMemo(
+      () =>
+        forecasts.filter(
+          (forecast) =>
+            [
+              "critical",
+              "high",
+            ].includes(
+              forecast.severity,
+            ),
         ),
-      ),
-    [forecasts],
-  );
+      [forecasts],
+    );
 
 
-  const totalProviderBalance = useMemo(
-    () =>
-      selectedAgent?.balances?.reduce(
-        (total, balance) => total + balance.balance,
-        0,
-      ) ?? 0,
-    [selectedAgent],
-  );
+  const totalProviderBalance =
+    useMemo(
+      () =>
+        selectedAgent?.balances?.reduce(
+          (
+            total,
+            balance,
+          ) =>
+            total +
+            balance.balance,
+          0,
+        ) ?? 0,
+      [selectedAgent],
+    );
 
 
-  if (loading && !selectedAgent) {
+  const openAlertCount =
+    useMemo(
+      () =>
+        alerts.filter(
+          (alert) =>
+            ![
+              "resolved",
+              "closed",
+            ].includes(
+              alert.status,
+            ),
+        ).length,
+      [alerts],
+    );
+
+
+  const openCaseCount =
+    useMemo(
+      () =>
+        cases.filter(
+          (caseItem) =>
+            ![
+              "resolved",
+              "closed",
+            ].includes(
+              caseItem.status,
+            ),
+        ).length,
+      [cases],
+    );
+
+
+  if (
+    loading &&
+    !selectedAgent
+  ) {
     return <FullPageLoader />;
   }
 
@@ -177,21 +331,29 @@ function App() {
             </p>
 
             <h2 className="mt-2 text-3xl font-bold tracking-tight">
-              Multi-provider liquidity intelligence
+              Multi-provider liquidity
+              intelligence
             </h2>
 
             <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-600">
-              Monitor provider balances, predict liquidity pressure,
-              detect unusual activity, and support safe human decisions.
+              Monitor provider balances,
+              predict liquidity pressure,
+              detect unusual activity,
+              and support safe human
+              decisions.
             </p>
           </div>
 
           <div className="flex flex-col gap-3 sm:flex-row">
             <select
-              value={selectedAgentId ?? ""}
+              value={
+                selectedAgentId ?? ""
+              }
               onChange={(event) =>
                 setSelectedAgentId(
-                  Number(event.target.value),
+                  Number(
+                    event.target.value,
+                  ),
                 )
               }
               className="rounded-xl border border-slate-300 bg-white px-4 py-3 text-sm font-medium outline-none focus:border-indigo-500"
@@ -201,15 +363,21 @@ function App() {
                   key={agent.id}
                   value={agent.id}
                 >
-                  {agent.agent_code} — {agent.name}
+                  {agent.agent_code}
+                  {" — "}
+                  {agent.name}
                 </option>
               ))}
             </select>
 
             <button
               type="button"
-              onClick={handleGenerateAlerts}
-              disabled={generatingAlerts}
+              onClick={
+                handleGenerateAlerts
+              }
+              disabled={
+                generatingAlerts
+              }
               className="inline-flex items-center justify-center gap-2 rounded-xl bg-indigo-600 px-5 py-3 text-sm font-semibold text-white transition hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-60"
             >
               {generatingAlerts ? (
@@ -218,7 +386,9 @@ function App() {
                   className="animate-spin"
                 />
               ) : (
-                <RefreshCw size={18} />
+                <RefreshCw
+                  size={18}
+                />
               )}
 
               Generate Alerts
@@ -236,17 +406,38 @@ function App() {
         {notification && (
           <MessageBanner
             type="success"
-            message={notification}
+            message={
+              notification
+            }
           />
         )}
 
+        {loading &&
+          selectedAgent && (
+            <div className="mb-5 flex items-center gap-2 rounded-xl border border-indigo-200 bg-indigo-50 px-4 py-3 text-sm font-medium text-indigo-700">
+              <LoaderCircle
+                size={17}
+                className="animate-spin"
+              />
+
+              Refreshing dashboard
+              data...
+            </div>
+          )}
+
         {selectedAgent && (
           <>
-            <AgentSummary agent={selectedAgent} />
+            <AgentSummary
+              agent={selectedAgent}
+            />
 
-            <section className="mt-6 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+            <section className="mt-6 grid gap-4 md:grid-cols-2 xl:grid-cols-5">
               <MetricCard
-                icon={<Banknote size={22} />}
+                icon={
+                  <Banknote
+                    size={22}
+                  />
+                }
                 label="Physical cash"
                 value={formatCurrency(
                   selectedAgent.physical_cash,
@@ -255,7 +446,11 @@ function App() {
               />
 
               <MetricCard
-                icon={<WalletCards size={22} />}
+                icon={
+                  <WalletCards
+                    size={22}
+                  />
+                }
                 label="Provider balances"
                 value={formatCurrency(
                   totalProviderBalance,
@@ -264,32 +459,62 @@ function App() {
               />
 
               <MetricCard
-                icon={<AlertTriangle size={22} />}
+                icon={
+                  <AlertTriangle
+                    size={22}
+                  />
+                }
                 label="Open alerts"
-                value={alerts.filter(
-                  (alert) =>
-                    !["resolved", "closed"].includes(
-                      alert.status,
-                    ),
-                ).length}
+                value={openAlertCount}
                 helper="Human review may be required"
               />
 
               <MetricCard
-                icon={<Activity size={22} />}
+                icon={
+                  <Activity
+                    size={22}
+                  />
+                }
                 label="High-risk forecasts"
-                value={criticalForecasts.length}
+                value={
+                  criticalForecasts.length
+                }
                 helper="Critical or high severity"
+              />
+
+              <MetricCard
+                icon={
+                  <BriefcaseBusiness
+                    size={22}
+                  />
+                }
+                label="Open cases"
+                value={openCaseCount}
+                helper="Operational coordination cases"
               />
             </section>
 
             <ProviderBalances
-              balances={selectedAgent.balances}
+              balances={
+                selectedAgent.balances
+              }
             />
 
-            <ForecastSection forecasts={forecasts} />
+            <ForecastSection
+              forecasts={forecasts}
+            />
 
-            <AlertsSection alerts={alerts} />
+            <AlertsSection
+              alerts={alerts}
+            />
+
+            <CaseManagement
+              alerts={alerts}
+              cases={cases}
+              onCasesChanged={
+                refreshCases
+              }
+            />
           </>
         )}
       </main>
@@ -313,14 +538,17 @@ function Header() {
             </h1>
 
             <p className="text-xs text-slate-400">
-              Liquidity & Risk Intelligence Platform
+              Liquidity & Risk
+              Intelligence Platform
             </p>
           </div>
         </div>
 
         <div className="flex items-center gap-2 rounded-full border border-emerald-500/30 bg-emerald-500/10 px-3 py-1.5 text-xs font-semibold text-emerald-300">
           <span className="h-2 w-2 rounded-full bg-emerald-400" />
-          Synthetic demo environment
+
+          Synthetic demo
+          environment
         </div>
       </div>
     </header>
@@ -328,7 +556,9 @@ function Header() {
 }
 
 
-function AgentSummary({ agent }) {
+function AgentSummary({
+  agent,
+}) {
   return (
     <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
       <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
@@ -350,14 +580,19 @@ function AgentSummary({ agent }) {
 
             <span className="flex items-center gap-1.5">
               <MapPin size={15} />
+
               {agent.area}
             </span>
           </div>
         </div>
 
         <div className="flex items-center gap-2 rounded-xl bg-indigo-50 px-4 py-3 text-sm font-medium text-indigo-700">
-          <ShieldCheck size={18} />
-          Advisory system — human decision required
+          <ShieldCheck
+            size={18}
+          />
+
+          Advisory system —
+          human decision required
         </div>
       </div>
     </section>
@@ -400,7 +635,9 @@ function MetricCard({
 }
 
 
-function ProviderBalances({ balances }) {
+function ProviderBalances({
+  balances,
+}) {
   return (
     <section className="mt-6">
       <SectionHeading
@@ -409,42 +646,58 @@ function ProviderBalances({ balances }) {
       />
 
       <div className="mt-4 grid gap-4 md:grid-cols-3">
-        {balances.map((balance) => (
-          <article
-            key={balance.id}
-            className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm"
-          >
-            <div className="flex items-start justify-between">
-              <div>
-                <p className="text-sm font-medium text-slate-500">
-                  {balance.provider.name}
-                </p>
+        {balances.map(
+          (balance) => (
+            <article
+              key={balance.id}
+              className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm"
+            >
+              <div className="flex items-start justify-between">
+                <div>
+                  <p className="text-sm font-medium text-slate-500">
+                    {
+                      balance
+                        .provider
+                        .name
+                    }
+                  </p>
 
-                <p className="mt-2 text-2xl font-bold">
-                  {formatCurrency(balance.balance)}
-                </p>
+                  <p className="mt-2 text-2xl font-bold">
+                    {formatCurrency(
+                      balance.balance,
+                    )}
+                  </p>
+                </div>
+
+                <DataStatusBadge
+                  status={
+                    balance.data_status
+                  }
+                />
               </div>
 
-              <DataStatusBadge
-                status={balance.data_status}
-              />
-            </div>
+              <div className="mt-5 flex items-center gap-2 text-xs text-slate-500">
+                <Database
+                  size={14}
+                />
 
-            <div className="mt-5 flex items-center gap-2 text-xs text-slate-500">
-              <Database size={14} />
-
-              Last update:{" "}
-              {formatDateTime(balance.last_updated)}
-            </div>
-          </article>
-        ))}
+                Last update:{" "}
+                {formatDateTime(
+                  balance.last_updated,
+                )}
+              </div>
+            </article>
+          ),
+        )}
       </div>
     </section>
   );
 }
 
 
-function ForecastSection({ forecasts }) {
+function ForecastSection({
+  forecasts,
+}) {
   return (
     <section className="mt-8">
       <SectionHeading
@@ -453,89 +706,111 @@ function ForecastSection({ forecasts }) {
       />
 
       <div className="mt-4 grid gap-4 lg:grid-cols-3">
-        {forecasts.map((forecast) => (
-          <article
-            key={forecast.provider_id}
-            className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm"
-          >
-            <div className="flex items-start justify-between gap-3">
-              <div>
-                <p className="text-sm font-medium text-slate-500">
-                  {forecast.provider_name}
+        {forecasts.map(
+          (forecast) => (
+            <article
+              key={
+                forecast.provider_id
+              }
+              className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm"
+            >
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <p className="text-sm font-medium text-slate-500">
+                    {
+                      forecast.provider_name
+                    }
+                  </p>
+
+                  <h4 className="mt-1 text-lg font-bold">
+                    {formatRiskType(
+                      forecast.risk_type,
+                    )}
+                  </h4>
+                </div>
+
+                <SeverityBadge
+                  severity={
+                    forecast.severity
+                  }
+                />
+              </div>
+
+              <div className="mt-5 rounded-xl bg-slate-50 p-4">
+                <div className="flex items-center gap-2 text-sm text-slate-500">
+                  <Clock3
+                    size={17}
+                  />
+
+                  Estimated shortage
+                </div>
+
+                <p className="mt-2 text-2xl font-bold">
+                  {forecast.estimated_shortage_minutes
+                    ? `${forecast.estimated_shortage_minutes} min`
+                    : "No immediate risk"}
                 </p>
+              </div>
 
-                <h4 className="mt-1 text-lg font-bold">
-                  {formatRiskType(
-                    forecast.risk_type,
+              <div className="mt-4 grid grid-cols-2 gap-3 text-sm">
+                <SmallStat
+                  label="Confidence"
+                  value={`${Math.round(
+                    forecast.confidence *
+                      100,
+                  )}%`}
+                />
+
+                <SmallStat
+                  label="Transactions"
+                  value={
+                    forecast.transaction_count
+                  }
+                />
+
+                <SmallStat
+                  label="Cash-in"
+                  value={formatCurrency(
+                    forecast.cash_in_total,
                   )}
-                </h4>
+                />
+
+                <SmallStat
+                  label="Cash-out"
+                  value={formatCurrency(
+                    forecast.cash_out_total,
+                  )}
+                />
               </div>
 
-              <SeverityBadge
-                severity={forecast.severity}
-              />
-            </div>
-
-            <div className="mt-5 rounded-xl bg-slate-50 p-4">
-              <div className="flex items-center gap-2 text-sm text-slate-500">
-                <Clock3 size={17} />
-                Estimated shortage
-              </div>
-
-              <p className="mt-2 text-2xl font-bold">
-                {forecast.estimated_shortage_minutes
-                  ? `${forecast.estimated_shortage_minutes} min`
-                  : "No immediate risk"}
+              <p className="mt-4 text-sm leading-6 text-slate-600">
+                {
+                  forecast.explanation
+                }
               </p>
-            </div>
 
-            <div className="mt-4 grid grid-cols-2 gap-3 text-sm">
-              <SmallStat
-                label="Confidence"
-                value={`${Math.round(
-                  forecast.confidence * 100,
-                )}%`}
-              />
-
-              <SmallStat
-                label="Transactions"
-                value={forecast.transaction_count}
-              />
-
-              <SmallStat
-                label="Cash-in"
-                value={formatCurrency(
-                  forecast.cash_in_total,
-                )}
-              />
-
-              <SmallStat
-                label="Cash-out"
-                value={formatCurrency(
-                  forecast.cash_out_total,
-                )}
-              />
-            </div>
-
-            <p className="mt-4 text-sm leading-6 text-slate-600">
-              {forecast.explanation}
-            </p>
-
-            <div className="mt-4 rounded-xl border border-indigo-100 bg-indigo-50 p-3 text-sm leading-6 text-indigo-800">
-              <strong>Recommended:</strong>{" "}
-              {forecast.recommended_action}
-            </div>
-          </article>
-        ))}
+              <div className="mt-4 rounded-xl border border-indigo-100 bg-indigo-50 p-3 text-sm leading-6 text-indigo-800">
+                <strong>
+                  Recommended:
+                </strong>{" "}
+                {
+                  forecast.recommended_action
+                }
+              </div>
+            </article>
+          ),
+        )}
       </div>
     </section>
   );
 }
 
 
-function AlertsSection({ alerts }) {
+function AlertsSection({
+  alerts,
+}) {
   return (
-    <section className="mt-8 pb-10">
+    <section className="mt-8">
       <SectionHeading
         title="Saved alerts"
         subtitle="Explainable alerts stored for operational review."
@@ -554,74 +829,87 @@ function AlertsSection({ alerts }) {
             </p>
 
             <p className="mt-1 text-sm text-slate-500">
-              Click Generate Alerts to analyse the
-              selected agent.
+              Click Generate Alerts
+              to analyse the selected
+              agent.
             </p>
           </div>
         ) : (
           <div className="divide-y divide-slate-200">
-            {alerts.map((alert) => (
-              <article
-                key={alert.id}
-                className="p-5"
-              >
-                <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
-                  <div>
-                    <div className="flex flex-wrap items-center gap-2">
-                      <SeverityBadge
-                        severity={alert.severity}
-                      />
+            {alerts.map(
+              (alert) => (
+                <article
+                  key={alert.id}
+                  className="p-5"
+                >
+                  <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+                    <div>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <SeverityBadge
+                          severity={
+                            alert.severity
+                          }
+                        />
 
-                      <span className="rounded-full bg-slate-100 px-2.5 py-1 text-xs font-semibold uppercase text-slate-600">
-                        {alert.status}
-                      </span>
+                        <span className="rounded-full bg-slate-100 px-2.5 py-1 text-xs font-semibold uppercase text-slate-600">
+                          {
+                            alert.status
+                          }
+                        </span>
 
-                      <span className="text-xs text-slate-400">
-                        {alert.provider_name ??
-                          "Shared cash"}
-                      </span>
+                        <span className="text-xs text-slate-400">
+                          {alert.provider_name ??
+                            "Shared cash"}
+                        </span>
+                      </div>
+
+                      <h4 className="mt-3 font-bold">
+                        {alert.title}
+                      </h4>
+
+                      <p className="mt-2 text-sm leading-6 text-slate-600">
+                        {alert.reason}
+                      </p>
                     </div>
 
-                    <h4 className="mt-3 font-bold">
-                      {alert.title}
-                    </h4>
+                    <div className="min-w-28 rounded-xl bg-slate-50 px-4 py-3 text-center">
+                      <p className="text-xs font-medium uppercase text-slate-500">
+                        Confidence
+                      </p>
 
-                    <p className="mt-2 text-sm leading-6 text-slate-600">
-                      {alert.reason}
-                    </p>
+                      <p className="mt-1 text-xl font-bold">
+                        {Math.round(
+                          alert.confidence *
+                            100,
+                        )}
+                        %
+                      </p>
+                    </div>
                   </div>
 
-                  <div className="min-w-28 rounded-xl bg-slate-50 px-4 py-3 text-center">
-                    <p className="text-xs font-medium uppercase text-slate-500">
-                      Confidence
-                    </p>
+                  <div className="mt-4 grid gap-3 lg:grid-cols-2">
+                    <div className="rounded-xl bg-amber-50 p-3 text-sm leading-6 text-amber-900">
+                      <strong>
+                        Possible
+                        explanation:
+                      </strong>{" "}
+                      {
+                        alert.possible_explanation
+                      }
+                    </div>
 
-                    <p className="mt-1 text-xl font-bold">
-                      {Math.round(
-                        alert.confidence * 100,
-                      )}
-                      %
-                    </p>
+                    <div className="rounded-xl bg-indigo-50 p-3 text-sm leading-6 text-indigo-900">
+                      <strong>
+                        Recommended action:
+                      </strong>{" "}
+                      {
+                        alert.recommended_action
+                      }
+                    </div>
                   </div>
-                </div>
-
-                <div className="mt-4 grid gap-3 lg:grid-cols-2">
-                  <div className="rounded-xl bg-amber-50 p-3 text-sm leading-6 text-amber-900">
-                    <strong>
-                      Possible explanation:
-                    </strong>{" "}
-                    {alert.possible_explanation}
-                  </div>
-
-                  <div className="rounded-xl bg-indigo-50 p-3 text-sm leading-6 text-indigo-900">
-                    <strong>
-                      Recommended action:
-                    </strong>{" "}
-                    {alert.recommended_action}
-                  </div>
-                </div>
-              </article>
-            ))}
+                </article>
+              ),
+            )}
           </div>
         )}
       </div>
@@ -666,12 +954,18 @@ function SmallStat({
 }
 
 
-function DataStatusBadge({ status }) {
+function DataStatusBadge({
+  status,
+}) {
   const styles = {
-    live: "bg-emerald-100 text-emerald-700",
-    delayed: "bg-amber-100 text-amber-700",
-    missing: "bg-red-100 text-red-700",
-    conflicting: "bg-purple-100 text-purple-700",
+    live:
+      "bg-emerald-100 text-emerald-700",
+    delayed:
+      "bg-amber-100 text-amber-700",
+    missing:
+      "bg-red-100 text-red-700",
+    conflicting:
+      "bg-purple-100 text-purple-700",
   };
 
   return (
@@ -687,12 +981,18 @@ function DataStatusBadge({ status }) {
 }
 
 
-function SeverityBadge({ severity }) {
+function SeverityBadge({
+  severity,
+}) {
   const styles = {
-    critical: "bg-red-100 text-red-700",
-    high: "bg-orange-100 text-orange-700",
-    medium: "bg-amber-100 text-amber-700",
-    low: "bg-emerald-100 text-emerald-700",
+    critical:
+      "bg-red-100 text-red-700",
+    high:
+      "bg-orange-100 text-orange-700",
+    medium:
+      "bg-amber-100 text-amber-700",
+    low:
+      "bg-emerald-100 text-emerald-700",
   };
 
   return (
@@ -737,7 +1037,8 @@ function FullPageLoader() {
         />
 
         <p className="mt-3 text-sm font-medium text-slate-600">
-          Loading AgentPulse dashboard...
+          Loading AgentPulse
+          dashboard...
         </p>
       </div>
     </div>
@@ -746,11 +1047,14 @@ function FullPageLoader() {
 
 
 function formatCurrency(value) {
-  return new Intl.NumberFormat("en-BD", {
-    style: "currency",
-    currency: "BDT",
-    maximumFractionDigits: 0,
-  }).format(value ?? 0);
+  return new Intl.NumberFormat(
+    "en-BD",
+    {
+      style: "currency",
+      currency: "BDT",
+      maximumFractionDigits: 0,
+    },
+  ).format(value ?? 0);
 }
 
 
@@ -759,21 +1063,31 @@ function formatDateTime(value) {
     return "Unknown";
   }
 
-  return new Date(value).toLocaleString("en-BD", {
+  return new Date(
+    value,
+  ).toLocaleString("en-BD", {
     dateStyle: "medium",
     timeStyle: "short",
   });
 }
 
 
-function formatRiskType(riskType) {
+function formatRiskType(
+  riskType,
+) {
   const labels = {
-    provider_float: "Provider float pressure",
-    physical_cash: "Physical cash pressure",
-    stable: "Stable liquidity",
+    provider_float:
+      "Provider float pressure",
+    physical_cash:
+      "Physical cash pressure",
+    stable:
+      "Stable liquidity",
   };
 
-  return labels[riskType] ?? riskType;
+  return (
+    labels[riskType] ??
+    riskType
+  );
 }
 
 
