@@ -1,20 +1,58 @@
+import argparse
+import random
 from datetime import datetime, timedelta
-from random import choice, randint, uniform
 
 from app.database import Base, SessionLocal, engine
 from app.models import Agent, AgentBalance, Provider, Transaction
 
 
-def seed_database():
+def create_transaction(
+    db,
+    transaction_counter: int,
+    agent: Agent,
+    provider: Provider,
+    transaction_type: str,
+    amount: float,
+    created_at: datetime,
+    is_anomaly: bool = False,
+    prefix: str = "TXN",
+) -> int:
+    transaction = Transaction(
+        transaction_code=(
+            f"{prefix}-{transaction_counter:06d}"
+        ),
+        agent_id=agent.id,
+        provider_id=provider.id,
+        transaction_type=transaction_type,
+        amount=amount,
+        status="success",
+        created_at=created_at,
+        is_simulated_anomaly=is_anomaly,
+    )
+
+    db.add(transaction)
+
+    return transaction_counter + 1
+
+
+def seed_database(reset: bool = False):
+    if reset:
+        print("Resetting existing database...")
+        Base.metadata.drop_all(bind=engine)
+
     Base.metadata.create_all(bind=engine)
 
     db = SessionLocal()
+    rng = random.Random(42)
 
     try:
         existing_agents = db.query(Agent).count()
 
         if existing_agents > 0:
-            print("Database already contains data.")
+            print(
+                "Database already contains data. "
+                "Use --reset to recreate it."
+            )
             return
 
         providers = [
@@ -28,6 +66,11 @@ def seed_database():
 
         for provider in providers:
             db.refresh(provider)
+
+        provider_map = {
+            provider.code: provider
+            for provider in providers
+        }
 
         agents = [
             Agent(
@@ -74,10 +117,10 @@ def seed_database():
             },
         }
 
+        now = datetime.utcnow()
+
         for agent in agents:
             for provider in providers:
-                balance = demo_balances[agent.agent_code][provider.code]
-
                 data_status = "live"
 
                 if (
@@ -86,95 +129,239 @@ def seed_database():
                 ):
                     data_status = "delayed"
 
+                last_updated = now
+
+                if data_status == "delayed":
+                    last_updated = (
+                        now - timedelta(minutes=18)
+                    )
+
                 db.add(
                     AgentBalance(
                         agent_id=agent.id,
                         provider_id=provider.id,
-                        balance=balance,
+                        balance=demo_balances[
+                            agent.agent_code
+                        ][provider.code],
                         data_status=data_status,
-                        last_updated=(
-                            datetime.utcnow() - timedelta(minutes=18)
-                            if data_status == "delayed"
-                            else datetime.utcnow()
-                        ),
+                        last_updated=last_updated,
                     )
                 )
 
         db.commit()
 
         transaction_counter = 1
-        now = datetime.utcnow()
+        week_start = now - timedelta(days=7)
 
+        # Generate normal seven-day transaction history.
         for agent in agents:
-            for minute_offset in range(180, 0, -5):
-                provider = choice(providers)
+            current_hour = week_start.replace(
+                minute=0,
+                second=0,
+                microsecond=0,
+            )
 
-                transaction_type = choice(
-                    ["cash_in", "cash_out", "cash_out"]
+            while current_hour <= now:
+                hour = current_hour.hour
+                weekday = current_hour.weekday()
+
+                # Agent shops are mainly active from 8 AM to 10 PM.
+                if hour < 8 or hour > 22:
+                    current_hour += timedelta(hours=1)
+                    continue
+
+                hourly_count = 2
+
+                if 10 <= hour <= 13:
+                    hourly_count = 5
+                elif 17 <= hour <= 21:
+                    hourly_count = 7
+                elif 8 <= hour <= 9:
+                    hourly_count = 3
+                elif 14 <= hour <= 16:
+                    hourly_count = 4
+
+                # Friday and Saturday have higher demand.
+                if weekday in [4, 5]:
+                    hourly_count += 2
+
+                hourly_count = max(
+                    1,
+                    int(
+                        rng.gauss(
+                            hourly_count,
+                            1.2,
+                        )
+                    ),
                 )
 
-                amount = round(
-                    uniform(500, 8000) / 100
-                ) * 100
+                for _ in range(hourly_count):
+                    provider = rng.choices(
+                        providers,
+                        weights=[50, 32, 18],
+                        k=1,
+                    )[0]
 
-                transaction = Transaction(
-                    transaction_code=f"TXN-{transaction_counter:05d}",
-                    agent_id=agent.id,
-                    provider_id=provider.id,
-                    transaction_type=transaction_type,
-                    amount=amount,
-                    status="success",
-                    created_at=now - timedelta(minutes=minute_offset),
-                    is_simulated_anomaly=False,
-                )
+                    transaction_type = rng.choices(
+                        ["cash_in", "cash_out"],
+                        weights=[46, 54],
+                        k=1,
+                    )[0]
 
-                db.add(transaction)
-                transaction_counter += 1
+                    if rng.random() < 0.08:
+                        amount = rng.randrange(
+                            10000,
+                            25001,
+                            500,
+                        )
+                    else:
+                        amount = rng.randrange(
+                            500,
+                            9501,
+                            500,
+                        )
+
+                    created_at = (
+                        current_hour
+                        + timedelta(
+                            minutes=rng.randint(0, 59),
+                            seconds=rng.randint(0, 59),
+                        )
+                    )
+
+                    if created_at > now:
+                        continue
+
+                    transaction_counter = (
+                        create_transaction(
+                            db=db,
+                            transaction_counter=(
+                                transaction_counter
+                            ),
+                            agent=agent,
+                            provider=provider,
+                            transaction_type=(
+                                transaction_type
+                            ),
+                            amount=amount,
+                            created_at=created_at,
+                        )
+                    )
+
+                current_hour += timedelta(hours=1)
 
         agent_one = agents[0]
-        bkash = next(
-            provider
-            for provider in providers
-            if provider.code == "BKASH"
-        )
+        bkash = provider_map["BKASH"]
+        nagad = provider_map["NAGAD"]
+        rocket = provider_map["ROCKET"]
 
-        for minute_offset in [18, 15, 12, 9, 6, 3]:
-            transaction = Transaction(
-                transaction_code=f"TXN-{transaction_counter:05d}",
-                agent_id=agent_one.id,
-                provider_id=bkash.id,
+        # Repeated amount anomaly during the recent period.
+        for minute_offset in [28, 25, 22, 19, 16, 13]:
+            transaction_counter = create_transaction(
+                db=db,
+                transaction_counter=transaction_counter,
+                agent=agent_one,
+                provider=nagad,
                 transaction_type="cash_out",
-                amount=9500,
-                status="success",
-                created_at=now - timedelta(minutes=minute_offset),
-                is_simulated_anomaly=True,
+                amount=12000,
+                created_at=(
+                    now
+                    - timedelta(minutes=minute_offset)
+                ),
+                is_anomaly=True,
+                prefix="DEMO-ANM",
             )
 
-            db.add(transaction)
-            transaction_counter += 1
+        # High-value transaction burst.
+        high_value_amounts = [
+            15000,
+            18000,
+            22000,
+            17000,
+        ]
 
-        for _ in range(4):
-            transaction = Transaction(
-                transaction_code=f"TXN-{transaction_counter:05d}",
-                agent_id=agent_one.id,
-                provider_id=bkash.id,
+        for index, amount in enumerate(
+            high_value_amounts
+        ):
+            transaction_counter = create_transaction(
+                db=db,
+                transaction_counter=transaction_counter,
+                agent=agent_one,
+                provider=rocket,
                 transaction_type="cash_out",
-                amount=randint(12000, 18000),
-                status="success",
-                created_at=now - timedelta(minutes=randint(1, 8)),
-                is_simulated_anomaly=True,
+                amount=amount,
+                created_at=(
+                    now
+                    - timedelta(
+                        minutes=12 - index * 2
+                    )
+                ),
+                is_anomaly=True,
+                prefix="DEMO-HVB",
             )
 
-            db.add(transaction)
-            transaction_counter += 1
+        # Fresh bKash cash-in demand for liquidity forecast.
+        liquidity_amounts = [
+            15000,
+            14500,
+            16000,
+            15500,
+            15000,
+            16500,
+            14500,
+            15000,
+        ]
+
+        for index, amount in enumerate(
+            liquidity_amounts
+        ):
+            transaction_counter = create_transaction(
+                db=db,
+                transaction_counter=transaction_counter,
+                agent=agent_one,
+                provider=bkash,
+                transaction_type="cash_in",
+                amount=amount,
+                created_at=(
+                    now
+                    - timedelta(minutes=index * 2)
+                ),
+                is_anomaly=False,
+                prefix="DEMO-LIQ",
+            )
 
         db.commit()
 
-        print("Synthetic demo data created successfully.")
+        total_transactions = (
+            db.query(Transaction).count()
+        )
+
+        print("Seven-day synthetic data created.")
+        print(
+            f"Total transactions: "
+            f"{total_transactions}"
+        )
+        print(
+            f"Data period: {week_start} to {now}"
+        )
+
+    except Exception:
+        db.rollback()
+        raise
 
     finally:
         db.close()
 
 
 if __name__ == "__main__":
-    seed_database()
+    parser = argparse.ArgumentParser()
+
+    parser.add_argument(
+        "--reset",
+        action="store_true",
+        help="Delete existing data and recreate database.",
+    )
+
+    arguments = parser.parse_args()
+
+    seed_database(reset=arguments.reset)

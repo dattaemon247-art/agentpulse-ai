@@ -1,4 +1,9 @@
-import { useEffect, useMemo, useState } from "react";
+import {
+  useEffect,
+  useMemo,
+  useState,
+} from "react";
+
 import {
   Activity,
   AlertTriangle,
@@ -7,6 +12,7 @@ import {
   ChevronRight,
   Clock3,
   Database,
+  FlaskConical,
   LoaderCircle,
   MapPin,
   RefreshCw,
@@ -23,36 +29,60 @@ import {
   fetchCases,
   fetchLiquidityForecast,
   generateAgentAlerts,
+  injectFullDemo,
 } from "./services/api";
 
 
 function App() {
-  const [agents, setAgents] = useState([]);
-  const [selectedAgentId, setSelectedAgentId] =
-    useState(null);
+  const [
+    agents,
+    setAgents,
+  ] = useState([]);
 
-  const [selectedAgent, setSelectedAgent] =
-    useState(null);
+  const [
+    selectedAgentId,
+    setSelectedAgentId,
+  ] = useState(null);
 
-  const [forecasts, setForecasts] =
-    useState([]);
+  const [
+    selectedAgent,
+    setSelectedAgent,
+  ] = useState(null);
 
-  const [alerts, setAlerts] =
-    useState([]);
+  const [
+    forecasts,
+    setForecasts,
+  ] = useState([]);
 
-  const [cases, setCases] =
-    useState([]);
+  const [
+    alerts,
+    setAlerts,
+  ] = useState([]);
 
-  const [loading, setLoading] =
-    useState(true);
+  const [
+    cases,
+    setCases,
+  ] = useState([]);
+
+  const [
+    loading,
+    setLoading,
+  ] = useState(true);
 
   const [
     generatingAlerts,
     setGeneratingAlerts,
   ] = useState(false);
 
-  const [error, setError] =
-    useState("");
+  const [
+    injectingDemo,
+    setInjectingDemo,
+  ] = useState(false);
+
+  const [
+    error,
+    setError,
+  ] = useState("");
 
   const [
     notification,
@@ -61,22 +91,20 @@ function App() {
 
 
   useEffect(() => {
-    loadInitialData();
+    loadAgents();
   }, []);
 
 
   useEffect(() => {
-    if (!selectedAgentId) {
-      return;
+    if (selectedAgentId) {
+      loadSelectedAgentData(
+        selectedAgentId,
+      );
     }
-
-    loadSelectedAgentData(
-      selectedAgentId,
-    );
   }, [selectedAgentId]);
 
 
-  async function loadInitialData() {
+  async function loadAgents() {
     try {
       setLoading(true);
       setError("");
@@ -109,7 +137,6 @@ function App() {
     try {
       setLoading(true);
       setError("");
-      setNotification("");
 
       const [
         agentData,
@@ -118,11 +145,14 @@ function App() {
         caseData,
       ] = await Promise.all([
         fetchAgent(agentId),
+
         fetchLiquidityForecast(
           agentId,
           60,
         ),
+
         fetchAgentAlerts(agentId),
+
         fetchCases(),
       ]);
 
@@ -131,13 +161,9 @@ function App() {
       setAlerts(alertData);
 
       const selectedAgentCases =
-        caseData.filter(
-          (caseItem) =>
-            alertData.some(
-              (alert) =>
-                alert.id ===
-                caseItem.alert_id,
-            ),
+        filterCasesForAgent(
+          caseData,
+          alertData,
         );
 
       setCases(selectedAgentCases);
@@ -159,11 +185,14 @@ function App() {
     }
 
     try {
+      setError("");
+
       const [
         caseData,
         alertData,
       ] = await Promise.all([
         fetchCases(),
+
         fetchAgentAlerts(
           selectedAgentId,
         ),
@@ -172,13 +201,9 @@ function App() {
       setAlerts(alertData);
 
       const selectedAgentCases =
-        caseData.filter(
-          (caseItem) =>
-            alertData.some(
-              (alert) =>
-                alert.id ===
-                caseItem.alert_id,
-            ),
+        filterCasesForAgent(
+          caseData,
+          alertData,
         );
 
       setCases(selectedAgentCases);
@@ -188,6 +213,40 @@ function App() {
       setError(
         "Case data refresh করা যায়নি.",
       );
+    }
+  }
+
+
+  async function handleInjectFullDemo() {
+    if (!selectedAgentId) {
+      return;
+    }
+
+    try {
+      setInjectingDemo(true);
+      setError("");
+      setNotification("");
+
+      const result = await injectFullDemo(
+        selectedAgentId,
+      );
+
+      await loadSelectedAgentData(
+        selectedAgentId,
+      );
+
+      setNotification(
+        result.message ??
+          "Fresh liquidity crisis এবং anomaly scenario successfully injected হয়েছে.",
+      );
+    } catch (requestError) {
+      console.error(requestError);
+
+      setError(
+        "Demo scenario inject করা যায়নি। Backend server এবং full-demo endpoint check করুন.",
+      );
+    } finally {
+      setInjectingDemo(false);
     }
   }
 
@@ -208,33 +267,39 @@ function App() {
           60,
         );
 
-      setNotification(
-        `${result.created_count}টি নতুন alert তৈরি হয়েছে এবং ${result.skipped_duplicate_count}টি duplicate alert skip হয়েছে.`,
-      );
-
       const [
         refreshedAlerts,
         refreshedCases,
+        refreshedForecasts,
       ] = await Promise.all([
         fetchAgentAlerts(
           selectedAgentId,
         ),
+
         fetchCases(),
+
+        fetchLiquidityForecast(
+          selectedAgentId,
+          60,
+        ),
       ]);
 
       setAlerts(refreshedAlerts);
+      setForecasts(
+        refreshedForecasts,
+      );
 
       const selectedAgentCases =
-        refreshedCases.filter(
-          (caseItem) =>
-            refreshedAlerts.some(
-              (alert) =>
-                alert.id ===
-                caseItem.alert_id,
-            ),
+        filterCasesForAgent(
+          refreshedCases,
+          refreshedAlerts,
         );
 
       setCases(selectedAgentCases);
+
+      setNotification(
+        `${result.created_count}টি নতুন alert তৈরি হয়েছে এবং ${result.skipped_duplicate_count}টি duplicate alert skip হয়েছে.`,
+      );
     } catch (requestError) {
       console.error(requestError);
 
@@ -272,7 +337,9 @@ function App() {
             balance,
           ) =>
             total +
-            balance.balance,
+            Number(
+              balance.balance ?? 0,
+            ),
           0,
         ) ?? 0,
       [selectedAgent],
@@ -344,7 +411,7 @@ function App() {
             </p>
           </div>
 
-          <div className="flex flex-col gap-3 sm:flex-row">
+          <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap">
             <select
               value={
                 selectedAgentId ?? ""
@@ -356,7 +423,11 @@ function App() {
                   ),
                 )
               }
-              className="rounded-xl border border-slate-300 bg-white px-4 py-3 text-sm font-medium outline-none focus:border-indigo-500"
+              disabled={
+                injectingDemo ||
+                generatingAlerts
+              }
+              className="rounded-xl border border-slate-300 bg-white px-4 py-3 text-sm font-medium outline-none focus:border-indigo-500 disabled:cursor-not-allowed disabled:opacity-60"
             >
               {agents.map((agent) => (
                 <option
@@ -373,10 +444,40 @@ function App() {
             <button
               type="button"
               onClick={
+                handleInjectFullDemo
+              }
+              disabled={
+                injectingDemo ||
+                generatingAlerts ||
+                !selectedAgentId
+              }
+              className="inline-flex items-center justify-center gap-2 rounded-xl bg-amber-500 px-5 py-3 text-sm font-semibold text-white transition hover:bg-amber-600 disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              {injectingDemo ? (
+                <LoaderCircle
+                  size={18}
+                  className="animate-spin"
+                />
+              ) : (
+                <FlaskConical
+                  size={18}
+                />
+              )}
+
+              {injectingDemo
+                ? "Injecting..."
+                : "Inject Full Demo"}
+            </button>
+
+            <button
+              type="button"
+              onClick={
                 handleGenerateAlerts
               }
               disabled={
-                generatingAlerts
+                generatingAlerts ||
+                injectingDemo ||
+                !selectedAgentId
               }
               className="inline-flex items-center justify-center gap-2 rounded-xl bg-indigo-600 px-5 py-3 text-sm font-semibold text-white transition hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-60"
             >
@@ -391,7 +492,9 @@ function App() {
                 />
               )}
 
-              Generate Alerts
+              {generatingAlerts
+                ? "Generating..."
+                : "Generate Alerts"}
             </button>
           </div>
         </section>
@@ -496,7 +599,8 @@ function App() {
 
             <ProviderBalances
               balances={
-                selectedAgent.balances
+                selectedAgent.balances ??
+                []
               }
             />
 
@@ -519,6 +623,21 @@ function App() {
         )}
       </main>
     </div>
+  );
+}
+
+
+function filterCasesForAgent(
+  caseData,
+  alertData,
+) {
+  return caseData.filter(
+    (caseItem) =>
+      alertData.some(
+        (alert) =>
+          alert.id ===
+          caseItem.alert_id,
+      ),
   );
 }
 
@@ -658,7 +777,7 @@ function ProviderBalances({
                     {
                       balance
                         .provider
-                        .name
+                        ?.name
                     }
                   </p>
 
@@ -702,7 +821,7 @@ function ForecastSection({
     <section className="mt-8">
       <SectionHeading
         title="Liquidity forecast"
-        subtitle="Forecast based on recent transaction demand."
+        subtitle="Forecast based on recent demand and the seven-day same-hour historical baseline."
       />
 
       <div className="mt-4 grid gap-4 lg:grid-cols-3">
@@ -746,7 +865,8 @@ function ForecastSection({
                 </div>
 
                 <p className="mt-2 text-2xl font-bold">
-                  {forecast.estimated_shortage_minutes
+                  {forecast.estimated_shortage_minutes !==
+                  null
                     ? `${forecast.estimated_shortage_minutes} min`
                     : "No immediate risk"}
                 </p>
@@ -890,8 +1010,7 @@ function AlertsSection({
                   <div className="mt-4 grid gap-3 lg:grid-cols-2">
                     <div className="rounded-xl bg-amber-50 p-3 text-sm leading-6 text-amber-900">
                       <strong>
-                        Possible
-                        explanation:
+                        Possible explanation:
                       </strong>{" "}
                       {
                         alert.possible_explanation
@@ -960,10 +1079,13 @@ function DataStatusBadge({
   const styles = {
     live:
       "bg-emerald-100 text-emerald-700",
+
     delayed:
       "bg-amber-100 text-amber-700",
+
     missing:
       "bg-red-100 text-red-700",
+
     conflicting:
       "bg-purple-100 text-purple-700",
   };
@@ -987,10 +1109,13 @@ function SeverityBadge({
   const styles = {
     critical:
       "bg-red-100 text-red-700",
+
     high:
       "bg-orange-100 text-orange-700",
+
     medium:
       "bg-amber-100 text-amber-700",
+
     low:
       "bg-emerald-100 text-emerald-700",
   };
@@ -1054,7 +1179,9 @@ function formatCurrency(value) {
       currency: "BDT",
       maximumFractionDigits: 0,
     },
-  ).format(value ?? 0);
+  ).format(
+    Number(value ?? 0),
+  );
 }
 
 
@@ -1078,8 +1205,10 @@ function formatRiskType(
   const labels = {
     provider_float:
       "Provider float pressure",
+
     physical_cash:
       "Physical cash pressure",
+
     stable:
       "Stable liquidity",
   };

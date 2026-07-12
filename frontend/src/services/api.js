@@ -120,4 +120,12 @@ export async function addCaseNote(
   return response.data;
 }
 
+export async function injectFullDemo(agentId) {
+  const response = await api.post(
+    `/api/demo/agents/${agentId}/full-demo`,
+  );
+
+  return response.data;
+}
+
 export default api;
